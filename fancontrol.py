@@ -9,8 +9,9 @@ import os
 from gpiozero import OutputDevice
 
 
-MAX_TEMP = 70  # (degrees Celsius) Fan kicks on at this temperature.
-MIN_TEMP = 55  # (degress Celsius) Fan shuts off at this temperature.
+MAX_TEMP = 63  # (degrees Celsius) Fan kicks on at this temperature.
+MIN_TEMP = 55  # (degrees Celsius) Fan shuts off at this temperature.
+HYS_TEMP = 3   # (degrees Celsius) Temp hysteresis
 FAN_LOW = 40
 FAN_HIGH = 100
 FAN_OFF = 0
@@ -37,12 +38,17 @@ def get_temp():
         raise RuntimeError('Could not parse temperature output.') from e
 
 def setFanSpeed(speed):
-    fan.start(speed)
+    fan.ChangeDutyCycle(speed)
     return()
 
-def handleFanSpeed():
+def handleFanSpeed(last_temp, heating_up):
     temp = get_temp()
-    print("temp is", temp)
+    delta = temp - last_temp
+    print(f"temp: {temp:.2f}°C [ {last_temp:.2f}{delta:+.2f}°C {'^' if heating_up else 'v'}]")
+
+    if not((delta != 0 and (delta > 0) == heating_up) or abs(delta) > HYS_TEMP or ((temp <= MIN_TEMP) and heating_up) or ((temp >= MAX_TEMP) and not heating_up)):
+        return last_temp, heating_up
+
 
     if temp < MIN_TEMP:
         fan_speed = FAN_OFF
@@ -53,10 +59,10 @@ def handleFanSpeed():
     else:
         fan_speed = FAN_LOW + ((temp-MIN_TEMP)*(FAN_HIGH-FAN_LOW))/(MAX_TEMP-MIN_TEMP)
 
-    print("Setting fan speed to ", fan_speed)
+    print(f"* Setting fan speed to {fan_speed:.1f}%")
     setFanSpeed(fan_speed)
 
-    return()
+    return temp, (delta > 0)
 
 if __name__ == '__main__':
     # Validate the on and off thresholds
@@ -67,8 +73,11 @@ if __name__ == '__main__':
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(GPIO_PIN, GPIO.OUT, initial=GPIO.LOW)
     fan = GPIO.PWM(GPIO_PIN, PWM_FREQ)
-    setFanSpeed(FAN_OFF)
+    fan.start(FAN_OFF)
+
+    last_temp = 0;
+    heating_up = True
 
     while True:
-        handleFanSpeed()
+        last_temp, heating_up = handleFanSpeed(last_temp, heating_up)
         time.sleep(SLEEP_INTERVAL)
